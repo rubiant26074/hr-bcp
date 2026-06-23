@@ -6,6 +6,7 @@
   .checkin-on-time { color: #14532d !important; font-weight: 700; }
   .checkin-late-mid { color: #fd7e14 !important; font-weight: 700; }
   .checkin-late-high { color: #dc3545 !important; font-weight: 700; }
+  .manual-overtime-input { width: 5.5rem; min-width: 5.5rem; }
 </style>
 
 @foreach ($messages as $m)
@@ -114,6 +115,9 @@
       <div class="small text-muted mb-2">
         TA-IL : Absensi Lembur Tetapi tidak ada izin Lembur<br>
         SK-SD : Sakit dengan Izin dokter
+        @if (!empty($canEditManualOvertime) && empty($hasManualOvertimeColumns))
+          <br>Input manual lembur membutuhkan migration terbaru.
+        @endif
       </div>
       <div class="small mb-2">
         @php
@@ -243,7 +247,24 @@
                   @endif
                 </td>
                 <td>{{ number_format((float) ($r->work_hours ?? 0), 2, ',', '.') }}</td>
-                <td>{{ number_format((float) ($r->overtime_hours ?? 0), 2, ',', '.') }}</td>
+                <td>
+                  @if (!empty($canEditManualOvertime) && !empty($hasManualOvertimeColumns) && !empty($r->has_attendance))
+                    <input
+                      type="number"
+                      class="form-control form-control-sm manual-overtime-input"
+                      name="manual_overtime_hours[{{ $r->date }}]"
+                      min="0"
+                      step="0.01"
+                      value="{{ number_format((float) ($r->overtime_hours ?? 0), 2, '.', '') }}"
+                      aria-label="Jam lembur {{ format_date_id($r->date) }}"
+                    >
+                    @if (!empty($r->overtime_hours_is_manual))
+                      <span class="badge text-bg-info mt-1">Manual</span>
+                    @endif
+                  @else
+                    {{ number_format((float) ($r->overtime_hours ?? 0), 2, ',', '.') }}
+                  @endif
+                </td>
                 <td>
                   @if (!empty($r->has_attendance) && empty($isEmployeeRole))
                     <input class="form-check-input js-ta-il" type="checkbox" name="no_overtime_permit_dates[]" value="{{ $r->date }}" {{ (int) ($r->no_overtime_permit ?? 0) === 1 ? 'checked' : '' }}>

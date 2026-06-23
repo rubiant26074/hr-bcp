@@ -16,6 +16,7 @@ class PayrollService
     private static ?bool $hasLeaveExcuseColumn = null;
     private static ?bool $hasSickExcuseColumn = null;
     private static ?bool $hasSpecialLeaveExcuseColumn = null;
+    private static ?bool $hasManualOvertimeColumns = null;
     private static ?bool $hasOvertimeModeColumn = null;
     private static ?bool $hasOvertimeManualHoursColumn = null;
     private static ?bool $hasOvertimeManualHour1Column = null;
@@ -75,6 +76,21 @@ class PayrollService
             self::$hasSpecialLeaveExcuseColumn = false;
         }
         return self::$hasSpecialLeaveExcuseColumn;
+    }
+
+    private static function attendanceDailyHasManualOvertimeColumns(): bool
+    {
+        if (self::$hasManualOvertimeColumns !== null) {
+            return self::$hasManualOvertimeColumns;
+        }
+        try {
+            self::$hasManualOvertimeColumns =
+                Schema::hasColumn('attendance_daily', 'overtime_hours_manual')
+                && Schema::hasColumn('attendance_daily', 'overtime_hours_is_manual');
+        } catch (\Throwable $e) {
+            self::$hasManualOvertimeColumns = false;
+        }
+        return self::$hasManualOvertimeColumns;
     }
 
     private static function payrollSettingHasOvertimeModeColumn(): bool
@@ -696,7 +712,16 @@ class PayrollService
             $overtimeQuery = DB::table('attendance_daily as d')
                 ->where('d.employee_id', $employeeId)
                 ->whereRaw('d.date BETWEEN ? AND ?', [$startDate, $endDate])
-                ->select('d.date', 'd.check_in', 'd.check_out', 'd.work_hours', 'd.no_overtime_permit', 'd.overtime_hours')
+                ->select(
+                    'd.date',
+                    'd.check_in',
+                    'd.check_out',
+                    'd.work_hours',
+                    'd.no_overtime_permit',
+                    'd.overtime_hours',
+                    self::attendanceDailyHasManualOvertimeColumns() ? 'd.overtime_hours_manual' : DB::raw('NULL as overtime_hours_manual'),
+                    self::attendanceDailyHasManualOvertimeColumns() ? 'd.overtime_hours_is_manual' : DB::raw('0 as overtime_hours_is_manual')
+                )
                 ->get();
 
             $overtimeHoursAuto = 0.0;
@@ -707,11 +732,14 @@ class PayrollService
                 $noPermit = self::attendanceDailyHasNoOtPermitColumn()
                     ? ((int) ($daily->no_overtime_permit ?? 0) === 1)
                     : false;
+                $manualOvertime = (int) ($daily->overtime_hours_is_manual ?? 0) === 1
+                    ? max(0.0, (float) ($daily->overtime_hours_manual ?? 0))
+                    : null;
                 $securityOvertimeByWorkHours = max(0.0, (float) ($daily->work_hours ?? 0) - 8.0);
                 if (!$noPermit) {
                     $overtimeHoursDaily += $isSecurity
-                        ? $securityOvertimeByWorkHours
-                        : max(0.0, (float) ($daily->overtime_hours ?? 0));
+                        ? ($manualOvertime ?? $securityOvertimeByWorkHours)
+                        : ($manualOvertime ?? max(0.0, (float) ($daily->overtime_hours ?? 0)));
                 }
                 $calc = OvertimeCalculator::calculateForRecord(
                     $companyId,
@@ -721,12 +749,13 @@ class PayrollService
                     $noPermit
                 );
                 if ($isSecurity) {
-                    $overtimeHoursAuto += $noPermit ? 0.0 : $securityOvertimeByWorkHours;
+                    $securityOvertimeHours = $manualOvertime ?? $securityOvertimeByWorkHours;
+                    $overtimeHoursAuto += $noPermit ? 0.0 : $securityOvertimeHours;
                     // Shift security baseline 8 jam: lembur dihitung setelah lewat 8 jam kerja.
-                    $overtimeWeightedHoursAuto += $noPermit ? 0.0 : $securityOvertimeByWorkHours;
+                    $overtimeWeightedHoursAuto += $noPermit ? 0.0 : $securityOvertimeHours;
                 } else {
-                    $overtimeHoursAuto += (float) ($calc['hours'] ?? 0);
-                    $overtimeWeightedHoursAuto += (float) ($calc['weighted_hours'] ?? 0);
+                    $overtimeHoursAuto += $manualOvertime ?? (float) ($calc['hours'] ?? 0);
+                    $overtimeWeightedHoursAuto += $manualOvertime ?? (float) ($calc['weighted_hours'] ?? 0);
                 }
             }
 
