@@ -44,7 +44,10 @@
           <input type="text" class="form-control js-currency" name="allin_ot_rate_9_10" value="{{ format_currency_id((float)($company->allin_ot_rate_9_10 ?? 45000), 2, false) }}">
         </div>
         <div class="col-12">
-          <div class="form-text">Gaji pokok di atas 10 jt tidak mendapatkan lembur.</div>
+          <div class="form-text">
+            Gaji pokok di atas 10 jt tidak mendapatkan lembur.
+            Hari kerja dihitung mulai pukul 19:00; hari libur/off-day mengikuti jam masuk dan jam pulang.
+          </div>
         </div>
       </div>
       <div class="d-flex gap-2 justify-content-end mt-3">
