@@ -69,6 +69,22 @@ class PayrollController extends Controller
         ];
     }
 
+    private function overtimeSlipDisplay(?object $item, float $lemburHours): array
+    {
+        $employmentStatus = strtoupper(trim((string) ($item->employment_status ?? '')));
+        $isAllIn = in_array($employmentStatus, ['TETAP ALL-IN', 'KONTRAK ALL-IN'], true);
+        $finalHours = round(max(0.0, (float) ($item->a2_overtime_hours ?? $lemburHours)), 2);
+        $rawHours = round(max($lemburHours, $finalHours), 2);
+        $deductedHours = $isAllIn ? round(max(0.0, $rawHours - $finalHours), 2) : 0.0;
+
+        return [
+            'is_all_in' => $isAllIn,
+            'raw_hours' => $rawHours,
+            'final_hours' => $finalHours,
+            'deducted_hours' => $deductedHours,
+        ];
+    }
+
     private function normalizePeriodStatus(string $status): string
     {
         $v = strtolower(trim($status));
@@ -2178,6 +2194,7 @@ class PayrollController extends Controller
             $taIlHours = (float) ($overtimeBreakdown['ta_il_hours'] ?? 0);
             $lemburHours = (float) ($overtimeBreakdown['lembur_hours'] ?? 0);
             $hasTaIl = (bool) ($overtimeBreakdown['has_ta_il'] ?? false);
+            $overtimeSlipDisplay = $this->overtimeSlipDisplay($item, $lemburHours);
 
             $gdAvailable = extension_loaded('gd');
             $logoDataUri = '';
@@ -2264,13 +2281,14 @@ class PayrollController extends Controller
         $taIlHours = (float) ($overtimeBreakdown['ta_il_hours'] ?? 0);
         $lemburHours = (float) ($overtimeBreakdown['lembur_hours'] ?? 0);
         $hasTaIl = (bool) ($overtimeBreakdown['has_ta_il'] ?? false);
+        $overtimeSlipDisplay = $this->overtimeSlipDisplay($item, $lemburHours);
 
         $messages = [];
         if (($user['role'] ?? '') === 'Employee' && $periodId && !$item) {
             $messages[] = 'Slip gaji belum tersedia untuk periode ini. Silakan hubungi HR untuk menjalankan payroll entitas Anda.';
         }
 
-        return view('modules.payroll.slip', compact('user', 'companyId', 'companies', 'periods', 'periodId', 'currentPeriod', 'items', 'employeeId', 'item', 'messages', 'taIlHours', 'lemburHours', 'hasTaIl'));
+        return view('modules.payroll.slip', compact('user', 'companyId', 'companies', 'periods', 'periodId', 'currentPeriod', 'items', 'employeeId', 'item', 'messages', 'taIlHours', 'lemburHours', 'hasTaIl', 'overtimeSlipDisplay'));
     }
 
     public function qr(Request $request)

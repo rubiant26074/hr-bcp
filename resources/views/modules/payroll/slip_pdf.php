@@ -103,7 +103,26 @@
                 <tr>
                   <td>A2</td>
                   <td>
-                    Lembur ( Lembur: <?= rtrim(rtrim(number_format((float)($lemburHours ?? 0), 2, '.', ''), '0'), '.') ?> Jam | TA-IL: <?= rtrim(rtrim(number_format((float)($taIlHours ?? 0), 2, '.', ''), '0'), '.') ?> Jam )
+                    <?php
+                      $fmtHour = static function ($value) {
+                          return rtrim(rtrim(number_format((float) $value, 2, '.', ''), '0'), '.');
+                      };
+                      $otDisplay = $overtimeSlipDisplay ?? [
+                          'is_all_in' => false,
+                          'raw_hours' => (float) ($lemburHours ?? 0),
+                          'final_hours' => (float) ($lemburHours ?? 0),
+                          'deducted_hours' => 0,
+                      ];
+                    ?>
+                    Lembur (
+                      Lembur:
+                      <?php if (!empty($otDisplay['is_all_in']) && (float) ($otDisplay['deducted_hours'] ?? 0) > 0): ?>
+                        <?= $fmtHour($otDisplay['raw_hours'] ?? 0) ?> Jam - <?= $fmtHour($otDisplay['deducted_hours'] ?? 0) ?> Jam (start 19.00)= <?= $fmtHour($otDisplay['final_hours'] ?? 0) ?> Jam
+                      <?php else: ?>
+                        <?= $fmtHour($otDisplay['final_hours'] ?? $lemburHours ?? 0) ?> Jam
+                      <?php endif; ?>
+                      | TA-IL: <?= $fmtHour($taIlHours ?? 0) ?> Jam
+                    )
                     <?php if (!empty($hasTaIl)): ?><span class="ta-il-badge">TA-IL</span><?php endif; ?>
                     <?php if (!empty($hasTaIl)): ?><div class="ta-il-note">TA-IL: Tidak Ada Izin Lembur</div><?php endif; ?>
                   </td>

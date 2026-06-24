@@ -1017,7 +1017,7 @@ class PayrollService
 
         return $query
             ->orderBy('e.name')
-            ->select('p.*', 'e.name', 'e.nik', 'e.position', 'e.grade', 'e.company_id')
+            ->select('p.*', 'e.name', 'e.nik', 'e.position', 'e.grade', 'e.employment_status', 'e.company_id')
             ->get();
     }
 
@@ -1031,7 +1031,7 @@ class PayrollService
         self::applyExcludeInactiveEmployeeStatuses($query, 'e.active_status');
 
         return $query
-            ->select('p.*', 'e.name', 'e.nik', 'e.position', 'e.grade', 'c.company_name', 'c.logo_path', 'e.company_id')
+            ->select('p.*', 'e.name', 'e.nik', 'e.position', 'e.grade', 'e.employment_status', 'c.company_name', 'c.logo_path', 'e.company_id')
             ->first();
     }
 
@@ -1046,7 +1046,7 @@ class PayrollService
         self::applyExcludeInactiveEmployeeStatuses($query, 'e.active_status');
 
         return $query
-            ->select('p.*', 'e.name', 'e.nik', 'e.position', 'e.grade', 'c.company_name', 'c.logo_path', 'e.company_id')
+            ->select('p.*', 'e.name', 'e.nik', 'e.position', 'e.grade', 'e.employment_status', 'c.company_name', 'c.logo_path', 'e.company_id')
             ->first();
     }
 
