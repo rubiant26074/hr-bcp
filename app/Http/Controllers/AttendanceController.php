@@ -2531,9 +2531,13 @@ class AttendanceController extends Controller
     public function monthlyEmployee(Request $request)
     {
         $hasSpecialLeaveExcusedColumn = Schema::hasColumn('attendance_daily', 'is_special_leave_excused');
+        $hasManualOvertimeColumns =
+            Schema::hasColumn('attendance_daily', 'overtime_hours_manual')
+            && Schema::hasColumn('attendance_daily', 'overtime_hours_is_manual');
         $user = current_user();
         $role = trim((string) ($user['role'] ?? ''));
         $canUnlockSpecialLeave = in_array($role, ['Super Admin', 'HR', 'HR1', 'HR2'], true);
+        $canEditManualOvertime = $role === 'HR1';
         $isEmployeeRole = strtolower(trim((string) ($user['role'] ?? ''))) === 'employee';
         $selfEmployeeId = (int) ($user['employee_id'] ?? 0);
         if ($isEmployeeRole && $selfEmployeeId <= 0) {
@@ -2690,6 +2694,7 @@ class AttendanceController extends Controller
                     $s = trim((string) $v);
                     return preg_match('/^\d{4}-\d{2}-\d{2}$/', $s) ? $s : '';
                 }, (array) $request->input('is_special_leave_excused_dates', [])))));
+                $manualOvertimeInputs = (array) $request->input('manual_overtime_hours', []);
 
                 $validDates = array_values(array_filter($rowDates, static function ($d) use ($startDate, $endDate) {
                     return $d >= $startDate && $d <= $endDate;
@@ -2706,6 +2711,8 @@ class AttendanceController extends Controller
                             'check_out',
                             'work_hours',
                             'overtime_hours',
+                            $hasManualOvertimeColumns ? 'overtime_hours_manual' : DB::raw('NULL as overtime_hours_manual'),
+                            $hasManualOvertimeColumns ? 'overtime_hours_is_manual' : DB::raw('0 as overtime_hours_is_manual'),
                             DB::raw('COALESCE(no_overtime_permit, 0) as no_overtime_permit'),
                             DB::raw('COALESCE(is_leave_excused, 0) as is_leave_excused'),
                             DB::raw('COALESCE(is_sick_doctor_excused, 0) as is_sick_doctor_excused'),
@@ -2741,12 +2748,35 @@ class AttendanceController extends Controller
                                     );
                                     $overtimeHours = round((float) ($calc['hours'] ?? 0), 2);
                                 }
+                                $manualInputRaw = trim((string) ($manualOvertimeInputs[$date] ?? ''));
+                                $shouldSaveManualOvertime = false;
+                                $manualOvertimeHours = null;
+                                if ($canEditManualOvertime && $hasManualOvertimeColumns && $manualInputRaw !== '') {
+                                    $manualInputNormalized = str_replace(',', '.', $manualInputRaw);
+                                    if (is_numeric($manualInputNormalized)) {
+                                        $manualOvertimeHours = round(max(0.0, (float) $manualInputNormalized), 2);
+                                        $existingManual = (int) ($existing->overtime_hours_is_manual ?? 0) === 1;
+                                        $existingManualHours = round(max(0.0, (float) ($existing->overtime_hours_manual ?? $overtimeHours)), 2);
+                                        if (
+                                            $existingManual
+                                            || abs($manualOvertimeHours - $overtimeHours) >= 0.005
+                                            || abs($manualOvertimeHours - $existingManualHours) >= 0.005
+                                        ) {
+                                            $overtimeHours = $manualOvertimeHours;
+                                            $shouldSaveManualOvertime = true;
+                                        }
+                                    }
+                                }
                                 $updatePayload = [
                                     'no_overtime_permit' => $noOtFlag,
                                     'overtime_hours' => $overtimeHours,
                                     'is_leave_excused' => 0,
                                     'is_sick_doctor_excused' => 0,
                                 ];
+                                if ($shouldSaveManualOvertime) {
+                                    $updatePayload['overtime_hours_manual'] = $manualOvertimeHours;
+                                    $updatePayload['overtime_hours_is_manual'] = 1;
+                                }
                                 if ($hasSpecialLeaveExcusedColumn) {
                                     // Kunci Izin Khusus: jika sudah dicentang, tidak boleh lepas
                                     // kecuali oleh Admin/HR.
@@ -2786,6 +2816,10 @@ class AttendanceController extends Controller
                                     'is_leave_excused' => $leaveFlag,
                                     'is_sick_doctor_excused' => $sickFlag,
                                 ];
+                                if ($canEditManualOvertime && $hasManualOvertimeColumns) {
+                                    $updatePayload['overtime_hours_manual'] = null;
+                                    $updatePayload['overtime_hours_is_manual'] = 0;
+                                }
                                 if ($hasSpecialLeaveExcusedColumn) {
                                     $updatePayload['is_special_leave_excused'] = $specialLeaveFlag;
                                 }
@@ -2887,6 +2921,8 @@ class AttendanceController extends Controller
                             'check_in',
                             'check_out',
                             'work_hours',
+                            $hasManualOvertimeColumns ? 'overtime_hours_manual' : DB::raw('NULL as overtime_hours_manual'),
+                            $hasManualOvertimeColumns ? 'overtime_hours_is_manual' : DB::raw('0 as overtime_hours_is_manual'),
                             DB::raw('COALESCE(no_overtime_permit, 0) as no_overtime_permit'),
                             DB::raw('COALESCE(is_leave_excused, 0) as is_leave_excused'),
                             DB::raw('COALESCE(is_sick_doctor_excused, 0) as is_sick_doctor_excused'),
@@ -2990,6 +3026,8 @@ class AttendanceController extends Controller
                 'check_out',
                 'work_hours',
                 'overtime_hours',
+                $hasManualOvertimeColumns ? 'overtime_hours_manual' : DB::raw('NULL as overtime_hours_manual'),
+                $hasManualOvertimeColumns ? 'overtime_hours_is_manual' : DB::raw('0 as overtime_hours_is_manual'),
                 DB::raw('COALESCE(no_overtime_permit, 0) as no_overtime_permit'),
                 DB::raw('COALESCE(is_leave_excused, 0) as is_leave_excused'),
                 DB::raw('COALESCE(is_sick_doctor_excused, 0) as is_sick_doctor_excused'),
@@ -3017,7 +3055,11 @@ class AttendanceController extends Controller
                         'check_in' => $shiftDaily['check_in'] ?? null,
                         'check_out' => $shiftDaily['check_out'] ?? null,
                         'work_hours' => (float) ($shiftDaily['work_hours'] ?? 0),
-                        'overtime_hours' => (float) ($shiftDaily['overtime_hours'] ?? 0),
+                        'overtime_hours' => (int) ($existingFlags->overtime_hours_is_manual ?? 0) === 1
+                            ? (float) ($existingFlags->overtime_hours_manual ?? 0)
+                            : (float) ($shiftDaily['overtime_hours'] ?? 0),
+                        'overtime_hours_manual' => $existingFlags->overtime_hours_manual ?? null,
+                        'overtime_hours_is_manual' => (int) ($existingFlags->overtime_hours_is_manual ?? 0),
                         'no_overtime_permit' => (int) ($existingFlags->no_overtime_permit ?? 0),
                         'is_leave_excused' => (int) ($existingFlags->is_leave_excused ?? 0),
                         'is_sick_doctor_excused' => (int) ($existingFlags->is_sick_doctor_excused ?? 0),
@@ -3169,6 +3211,10 @@ class AttendanceController extends Controller
 
                 $workHours = (float) ($daily->work_hours ?? 0);
                 $overtimeHours = (float) ($daily->overtime_hours ?? 0);
+                $isManualOvertime = $hasManualOvertimeColumns && (int) ($daily->overtime_hours_is_manual ?? 0) === 1;
+                if ($isManualOvertime) {
+                    $overtimeHours = round(max(0.0, (float) ($daily->overtime_hours_manual ?? 0)), 2);
+                }
                 // Recovery display: jika TA-IL dicentang tapi overtime tersimpan 0
                 // (legacy behavior lama), tampilkan hasil hitung lembur dari check in/out.
                 if (
@@ -3222,6 +3268,7 @@ class AttendanceController extends Controller
                     'check_out' => $daily->check_out ?? null,
                     'work_hours' => $workHours,
                     'overtime_hours' => $overtimeHours,
+                    'overtime_hours_is_manual' => $isManualOvertime ? 1 : 0,
                     'no_overtime_permit' => (int) ($daily->no_overtime_permit ?? 0),
                     'is_leave_excused' => (int) ($daily->is_leave_excused ?? 0),
                     'is_sick_doctor_excused' => (int) ($daily->is_sick_doctor_excused ?? 0),
@@ -3253,6 +3300,8 @@ class AttendanceController extends Controller
             'user',
             'isEmployeeRole',
             'canUnlockSpecialLeave',
+            'canEditManualOvertime',
+            'hasManualOvertimeColumns',
             'companyId',
             'companies',
             'company',

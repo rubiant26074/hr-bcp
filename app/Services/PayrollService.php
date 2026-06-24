@@ -16,6 +16,7 @@ class PayrollService
     private static ?bool $hasLeaveExcuseColumn = null;
     private static ?bool $hasSickExcuseColumn = null;
     private static ?bool $hasSpecialLeaveExcuseColumn = null;
+    private static ?bool $hasManualOvertimeColumns = null;
     private static ?bool $hasOvertimeModeColumn = null;
     private static ?bool $hasOvertimeManualHoursColumn = null;
     private static ?bool $hasOvertimeManualHour1Column = null;
@@ -75,6 +76,21 @@ class PayrollService
             self::$hasSpecialLeaveExcuseColumn = false;
         }
         return self::$hasSpecialLeaveExcuseColumn;
+    }
+
+    private static function attendanceDailyHasManualOvertimeColumns(): bool
+    {
+        if (self::$hasManualOvertimeColumns !== null) {
+            return self::$hasManualOvertimeColumns;
+        }
+        try {
+            self::$hasManualOvertimeColumns =
+                Schema::hasColumn('attendance_daily', 'overtime_hours_manual')
+                && Schema::hasColumn('attendance_daily', 'overtime_hours_is_manual');
+        } catch (\Throwable $e) {
+            self::$hasManualOvertimeColumns = false;
+        }
+        return self::$hasManualOvertimeColumns;
     }
 
     private static function payrollSettingHasOvertimeModeColumn(): bool
@@ -318,6 +334,58 @@ class PayrollService
             return (float) ($company->allin_ot_rate_8_9 ?? 40000);
         }
         return (float) ($company->allin_ot_rate_9_10 ?? 45000);
+    }
+
+    private static function resolveAllInOvertimeHours(object $daily, int $companyId, array $scheduledDateMap, ?float $manualOvertime = null): float
+    {
+        if ((int) ($daily->no_overtime_permit ?? 0) === 1) {
+            return 0.0;
+        }
+        if ($manualOvertime !== null) {
+            return max(0.0, $manualOvertime);
+        }
+
+        $workDate = (string) ($daily->date ?? '');
+        $checkIn = trim((string) ($daily->check_in ?? ''));
+        $checkOut = trim((string) ($daily->check_out ?? ''));
+        if ($workDate === '' || $checkIn === '' || $checkOut === '') {
+            return 0.0;
+        }
+
+        if (!isset($scheduledDateMap[$workDate])) {
+            $calc = OvertimeCalculator::calculateForRecord($companyId, $workDate, $checkIn, $checkOut, false);
+            return round(max(0.0, (float) ($calc['hours'] ?? 0)), 2);
+        }
+
+        try {
+            $start = new \DateTimeImmutable($checkIn);
+            $end = new \DateTimeImmutable($checkOut);
+            $policyStart = new \DateTimeImmutable($workDate . ' 19:00:00');
+        } catch (\Throwable $e) {
+            return 0.0;
+        }
+        if ($end <= $policyStart || $end <= $start) {
+            return 0.0;
+        }
+
+        $effectiveStart = $start > $policyStart ? $start : $policyStart;
+        $minutes = max(0.0, ($end->getTimestamp() - $effectiveStart->getTimestamp()) / 60);
+
+        // Kalau lembur melewati tengah malam, tetap kurangi jeda istirahat 00:00-01:00.
+        $breakCursor = new \DateTimeImmutable($effectiveStart->format('Y-m-d') . ' 00:00:00');
+        $breakLimit = new \DateTimeImmutable($end->format('Y-m-d') . ' 00:00:00');
+        while ($breakCursor <= $breakLimit) {
+            $breakStart = new \DateTimeImmutable($breakCursor->format('Y-m-d') . ' 00:00:00');
+            $breakEnd = new \DateTimeImmutable($breakCursor->format('Y-m-d') . ' 01:00:00');
+            $overlapStart = $effectiveStart > $breakStart ? $effectiveStart : $breakStart;
+            $overlapEnd = $end < $breakEnd ? $end : $breakEnd;
+            if ($overlapEnd > $overlapStart) {
+                $minutes -= ($overlapEnd->getTimestamp() - $overlapStart->getTimestamp()) / 60;
+            }
+            $breakCursor = $breakCursor->modify('+1 day');
+        }
+
+        return round(max(0.0, $minutes / 60), 2);
     }
 
     private static function countWorkdaysExcludingSunday(string $startDate, string $endDate): int
@@ -608,6 +676,7 @@ class PayrollService
             ->where('id', $companyId)
             ->first();
         $scheduledDates = self::scheduledWorkDates($companyId, $startDate, $endDate, $company);
+        $scheduledDateMap = array_flip($scheduledDates);
         $workdays = count($scheduledDates);
         $bpjsHealthPct = (float)($company->bpjs_health_pct ?? 1);
         $jhtPct = (float)($company->bpjs_jht_pct ?? 2);
@@ -696,22 +765,36 @@ class PayrollService
             $overtimeQuery = DB::table('attendance_daily as d')
                 ->where('d.employee_id', $employeeId)
                 ->whereRaw('d.date BETWEEN ? AND ?', [$startDate, $endDate])
-                ->select('d.date', 'd.check_in', 'd.check_out', 'd.work_hours', 'd.no_overtime_permit', 'd.overtime_hours')
+                ->select(
+                    'd.date',
+                    'd.check_in',
+                    'd.check_out',
+                    'd.work_hours',
+                    'd.no_overtime_permit',
+                    'd.overtime_hours',
+                    self::attendanceDailyHasManualOvertimeColumns() ? 'd.overtime_hours_manual' : DB::raw('NULL as overtime_hours_manual'),
+                    self::attendanceDailyHasManualOvertimeColumns() ? 'd.overtime_hours_is_manual' : DB::raw('0 as overtime_hours_is_manual')
+                )
                 ->get();
 
             $overtimeHoursAuto = 0.0;
             $overtimeWeightedHoursAuto = 0.0;
             $overtimeHoursDaily = 0.0;
+            $allInOvertimeHours = 0.0;
             $isSecurity = self::isSecurityPosition((string) ($e->position ?? ''));
             foreach ($overtimeQuery as $daily) {
                 $noPermit = self::attendanceDailyHasNoOtPermitColumn()
                     ? ((int) ($daily->no_overtime_permit ?? 0) === 1)
                     : false;
+                $manualOvertime = (int) ($daily->overtime_hours_is_manual ?? 0) === 1
+                    ? max(0.0, (float) ($daily->overtime_hours_manual ?? 0))
+                    : null;
+                $allInOvertimeHours += self::resolveAllInOvertimeHours($daily, $companyId, $scheduledDateMap, $manualOvertime);
                 $securityOvertimeByWorkHours = max(0.0, (float) ($daily->work_hours ?? 0) - 8.0);
                 if (!$noPermit) {
                     $overtimeHoursDaily += $isSecurity
-                        ? $securityOvertimeByWorkHours
-                        : max(0.0, (float) ($daily->overtime_hours ?? 0));
+                        ? ($manualOvertime ?? $securityOvertimeByWorkHours)
+                        : ($manualOvertime ?? max(0.0, (float) ($daily->overtime_hours ?? 0)));
                 }
                 $calc = OvertimeCalculator::calculateForRecord(
                     $companyId,
@@ -721,12 +804,13 @@ class PayrollService
                     $noPermit
                 );
                 if ($isSecurity) {
-                    $overtimeHoursAuto += $noPermit ? 0.0 : $securityOvertimeByWorkHours;
+                    $securityOvertimeHours = $manualOvertime ?? $securityOvertimeByWorkHours;
+                    $overtimeHoursAuto += $noPermit ? 0.0 : $securityOvertimeHours;
                     // Shift security baseline 8 jam: lembur dihitung setelah lewat 8 jam kerja.
-                    $overtimeWeightedHoursAuto += $noPermit ? 0.0 : $securityOvertimeByWorkHours;
+                    $overtimeWeightedHoursAuto += $noPermit ? 0.0 : $securityOvertimeHours;
                 } else {
-                    $overtimeHoursAuto += (float) ($calc['hours'] ?? 0);
-                    $overtimeWeightedHoursAuto += (float) ($calc['weighted_hours'] ?? 0);
+                    $overtimeHoursAuto += $manualOvertime ?? (float) ($calc['hours'] ?? 0);
+                    $overtimeWeightedHoursAuto += $manualOvertime ?? (float) ($calc['weighted_hours'] ?? 0);
                 }
             }
 
@@ -782,10 +866,9 @@ class PayrollService
                 $overtimeAmount = 0.0;
                 $overtimeHoursApproved = 0.0;
             } elseif ($isAllIn) {
-                // ALL-IN must follow validated attendance overtime hours.
-                // Prefer value already persisted in attendance_daily.overtime_hours.
-                // Fallback to recalculated value to preserve backward compatibility.
-                $overtimeHoursApproved = $overtimeHoursDaily > 0 ? $overtimeHoursDaily : $overtimeHoursAuto;
+                // Surat edaran all-in: hari kerja mulai dihitung lembur pukul 19:00.
+                // Hari libur/off-day tetap mengikuti jam masuk dan jam pulang.
+                $overtimeHoursApproved = round(max(0.0, $allInOvertimeHours), 2);
                 $allInRate = self::resolveAllInOvertimeRate($basicSalary, $company);
                 $overtimeAmount = round($allInRate * $overtimeHoursApproved, 2);
             } elseif ($overtimeMode === 'manual') {
