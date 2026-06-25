@@ -502,7 +502,7 @@
           <div class="col-6">
             <label class="form-label">Potongan Absensi</label>
             <input type="text" class="form-control js-currency" name="b2_absence" value="{{ format_currency_id($absencePreview['amount'] ?? (optional($payroll)->b2_absence ?? 0), 2, false) }}" readonly>
-            <div class="form-text">Otomatis dari tidak hadir: {{ $absencePreview['absence_days'] ?? 0 }} hari x ((A1 + A5 + A6 + A7) / 26). Cuti/Sakit dengan surat dokter tidak dipotong.</div>
+            <div class="form-text">Otomatis dari tidak hadir: {{ $absencePreview['absence_days'] ?? 0 }} hari x ((A1 + A5 + A6 + A7) / {{ number_format((float) ($absencePreview['absence_divisor'] ?? 26), 0, ',', '.') }}). Cuti/Sakit dengan surat dokter tidak dipotong.</div>
           </div>
           <div class="col-6">
             <label class="form-label">Subsidi 5%</label>

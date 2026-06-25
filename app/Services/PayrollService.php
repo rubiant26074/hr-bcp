@@ -478,6 +478,31 @@ class PayrollService
         return $dates;
     }
 
+    private static function effectiveScheduledWorkDatesForEmployee(array $scheduledDates, ?string $joinDate): array
+    {
+        $join = trim((string) $joinDate);
+        if ($join === '') {
+            return $scheduledDates;
+        }
+
+        $joinTs = strtotime($join);
+        if ($joinTs === false) {
+            return $scheduledDates;
+        }
+
+        $joinKey = date('Y-m-d', $joinTs);
+        return array_values(array_filter($scheduledDates, static fn ($date) => (string) $date >= $joinKey));
+    }
+
+    private static function absenceDivisor(int $fullWorkdays, int $employeeWorkdays): float
+    {
+        if ($employeeWorkdays <= 0) {
+            return 26.0;
+        }
+
+        return $employeeWorkdays < $fullWorkdays ? (float) $employeeWorkdays : 26.0;
+    }
+
     private static function excusedScheduledDatesForEmployee(int $companyId, int $employeeId, array $scheduledDates): array
     {
         if (count($scheduledDates) === 0) {
@@ -721,13 +746,16 @@ class PayrollService
                 ? max(0.0, (float) ($setting->manual_present_days ?? 0))
                 : 0.0;
 
+            $employeeScheduledDates = self::effectiveScheduledWorkDatesForEmployee($scheduledDates, (string) ($e->join_date ?? ''));
+            $employeeWorkdays = count($employeeScheduledDates);
+
             $absDays = 0;
-            if ($workdays > 0) {
+            if ($employeeWorkdays > 0) {
                 $presentDatesQuery = DB::table('attendance_daily as d')
                     ->join('employees as e2', 'e2.id', '=', 'd.employee_id')
                     ->where('e2.company_id', $companyId)
                     ->where('d.employee_id', $employeeId)
-                    ->whereIn('d.date', $scheduledDates)
+                    ->whereIn('d.date', $employeeScheduledDates)
                     ->where(function ($q) {
                         $q->whereNotNull('d.check_in')
                             ->orWhereNotNull('d.check_out')
@@ -741,14 +769,14 @@ class PayrollService
                     ->values()
                     ->all();
 
-                $excusedDates = self::excusedScheduledDatesForEmployee($companyId, $employeeId, $scheduledDates);
+                $excusedDates = self::excusedScheduledDatesForEmployee($companyId, $employeeId, $employeeScheduledDates);
                 $specialExcusedDates = [];
                 if (self::attendanceDailyHasSpecialLeaveExcuseColumn()) {
                     $specialExcusedDates = DB::table('attendance_daily as d')
                         ->join('employees as e2', 'e2.id', '=', 'd.employee_id')
                         ->where('e2.company_id', $companyId)
                         ->where('d.employee_id', $employeeId)
-                        ->whereIn('d.date', $scheduledDates)
+                        ->whereIn('d.date', $employeeScheduledDates)
                         ->where('d.is_special_leave_excused', 1)
                         ->distinct()
                         ->pluck('d.date')
@@ -759,11 +787,11 @@ class PayrollService
                 }
 
                 $effectiveDates = array_values(array_unique(array_merge($presentDates, $excusedDates, $specialExcusedDates)));
-                $effectivePresentDays = min($workdays, count($effectiveDates));
-                $absDays = max(0, $workdays - $effectivePresentDays);
+                $effectivePresentDays = min($employeeWorkdays, count($effectiveDates));
+                $absDays = max(0, $employeeWorkdays - $effectivePresentDays);
                 if ($absenceMode === 'manual') {
-                    $manualPresentDaysClamped = min((float) $workdays, $manualPresentDays);
-                    $absDays = max(0.0, (float) $workdays - $manualPresentDaysClamped);
+                    $manualPresentDaysClamped = min((float) $employeeWorkdays, $manualPresentDays);
+                    $absDays = max(0.0, (float) $employeeWorkdays - $manualPresentDaysClamped);
                 }
             }
 
@@ -983,12 +1011,13 @@ class PayrollService
             // Rumus potongan absen per hari: (A1 + A5 + A6 + A7) / 26.
             $absenceDeduction = 0.0;
             if (!$isHarian && !$isKomisaris && !$isFreelance && $absDays > 0) {
+                $absenceDivisor = self::absenceDivisor($workdays, $employeeWorkdays);
                 $dailyAbsenceBase = (
                     (float) $calculatedBasicSalary
                     + (float) ($allowances['a5_performance'] ?? 0)
                     + (float) ($allowances['a6_position'] ?? 0)
                     + (float) ($allowances['a7_family'] ?? 0)
-                ) / 26;
+                ) / $absenceDivisor;
                 $absenceDeduction = round(max(0, $dailyAbsenceBase) * max(0, (float) $absDays), 2);
             }
 
@@ -1227,13 +1256,15 @@ class PayrollService
             ? max(0.0, (float) ($setting->manual_present_days ?? 0))
             : 0.0;
         $scheduledDates = self::scheduledWorkDates($companyId, $startDate, $endDate, $company);
-        $workdays = count($scheduledDates);
+        $fullWorkdays = count($scheduledDates);
+        $employeeScheduledDates = self::effectiveScheduledWorkDatesForEmployee($scheduledDates, (string) ($employee->join_date ?? ''));
+        $workdays = count($employeeScheduledDates);
 
         $presentDatesQuery = DB::table('attendance_daily as d')
             ->join('employees as e', 'e.id', '=', 'd.employee_id')
             ->where('e.company_id', $companyId)
             ->where('d.employee_id', $employeeId)
-            ->whereIn('d.date', $scheduledDates)
+            ->whereIn('d.date', $employeeScheduledDates)
             ->where(function ($q) {
                 $q->whereNotNull('d.check_in')
                     ->orWhereNotNull('d.check_out')
@@ -1247,14 +1278,14 @@ class PayrollService
             ->values()
             ->all();
 
-        $excusedDates = self::excusedScheduledDatesForEmployee($companyId, (int) $employeeId, $scheduledDates);
+        $excusedDates = self::excusedScheduledDatesForEmployee($companyId, (int) $employeeId, $employeeScheduledDates);
         $specialExcusedDates = [];
         if (self::attendanceDailyHasSpecialLeaveExcuseColumn()) {
             $specialExcusedDates = DB::table('attendance_daily as d')
                 ->join('employees as e', 'e.id', '=', 'd.employee_id')
                 ->where('e.company_id', $companyId)
                 ->where('d.employee_id', $employeeId)
-                ->whereIn('d.date', $scheduledDates)
+                ->whereIn('d.date', $employeeScheduledDates)
                 ->where('d.is_special_leave_excused', 1)
                 ->distinct()
                 ->pluck('d.date')
@@ -1271,12 +1302,13 @@ class PayrollService
             $absenceDays = max(0.0, (float) $workdays - min((float) $workdays, $manualPresentDays));
         }
         $amount = 0.0;
+        $absenceDivisor = self::absenceDivisor($fullWorkdays, $workdays);
         if ($workdays > 0 && $absenceDays > 0) {
             $base = $basicSalary
                 + parse_currency_id($allowances['a5_performance'] ?? 0)
                 + parse_currency_id($allowances['a6_position'] ?? 0)
                 + parse_currency_id($allowances['a7_family'] ?? 0);
-            $amount = round((max(0.0, $base) / 26) * $absenceDays, 2);
+            $amount = round((max(0.0, $base) / $absenceDivisor) * $absenceDays, 2);
         }
 
         $periodLabel = $range['label'];
@@ -1287,6 +1319,9 @@ class PayrollService
             'amount' => $amount,
             'absence_days' => $absenceDays,
             'workdays' => $workdays,
+            'full_workdays' => $fullWorkdays,
+            'absence_divisor' => $absenceDivisor,
+            'is_partial_period' => $workdays > 0 && $workdays < $fullWorkdays,
             'excused_days' => count(array_values(array_unique(array_merge($excusedDates, $specialExcusedDates)))),
             'period_label' => $periodLabel,
         ];

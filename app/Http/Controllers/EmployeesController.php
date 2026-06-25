@@ -305,7 +305,7 @@ class EmployeesController extends Controller
 
         $edit = null;
         $payroll = null;
-        $absencePreview = ['amount' => 0, 'absence_days' => 0, 'workdays' => 0, 'excused_days' => 0, 'period_label' => '-'];
+        $absencePreview = ['amount' => 0, 'absence_days' => 0, 'workdays' => 0, 'full_workdays' => 0, 'absence_divisor' => 26, 'is_partial_period' => false, 'excused_days' => 0, 'period_label' => '-'];
         if ($request->has('edit')) {
             $edit = Employee::find((int) $request->query('edit'));
             if ($edit) {
