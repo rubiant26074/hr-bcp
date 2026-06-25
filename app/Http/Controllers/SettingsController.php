@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\DatabaseBackupService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class SettingsController extends Controller
 {
@@ -28,49 +28,6 @@ class SettingsController extends Controller
         }
 
         return view('modules.settings.theme', compact('messages', 'theme'));
-    }
-
-    private function dumpDatabase(\PDO $pdo, string $dbName): string
-    {
-        $out = "-- BCP-HRIS Backup\n";
-        $out .= "-- Generated: " . date('Y-m-d H:i:s') . "\n\n";
-        $out .= "SET FOREIGN_KEY_CHECKS=0;\n\n";
-
-        $tablesStmt = $pdo->prepare("SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME");
-        $tablesStmt->execute([$dbName]);
-        $tables = $tablesStmt->fetchAll(\PDO::FETCH_COLUMN);
-
-        foreach ($tables as $table) {
-            $createStmt = $pdo->query("SHOW CREATE TABLE `{$table}`");
-            $createRow = $createStmt->fetch(\PDO::FETCH_ASSOC);
-            $out .= "-- Table: `{$table}`\n";
-            $out .= "DROP TABLE IF EXISTS `{$table}`;\n";
-            $out .= $createRow['Create Table'] . ";\n\n";
-
-            $rowsStmt = $pdo->query("SELECT * FROM `{$table}`");
-            $rows = $rowsStmt->fetchAll(\PDO::FETCH_ASSOC);
-            if ($rows) {
-                $cols = array_map(function ($c) { return '`' . $c . '`'; }, array_keys($rows[0]));
-                $colList = implode(',', $cols);
-                $out .= "INSERT INTO `{$table}` ({$colList}) VALUES\n";
-                $values = [];
-                foreach ($rows as $row) {
-                    $vals = [];
-                    foreach ($row as $val) {
-                        if ($val === null) {
-                            $vals[] = 'NULL';
-                        } else {
-                            $vals[] = $pdo->quote($val);
-                        }
-                    }
-                    $values[] = '(' . implode(',', $vals) . ')';
-                }
-                $out .= implode(",\n", $values) . ";\n\n";
-            }
-        }
-
-        $out .= "SET FOREIGN_KEY_CHECKS=1;\n";
-        return $out;
     }
 
     private function splitSqlStatements(string $sql): array
@@ -155,6 +112,7 @@ class SettingsController extends Controller
         $errors = [];
         $maxUploadBytes = 70 * 1024 * 1024;
         $pdo = legacy_pdo();
+        $backupService = new DatabaseBackupService($pdo);
 
         if ($request->isMethod('post')) {
             $action = $request->input('action', 'backup');
@@ -201,10 +159,31 @@ class SettingsController extends Controller
                         $errors[] = 'Gagal restore database: ' . $e->getMessage();
                     }
                 }
+            } elseif ($action === 'save_schedule') {
+                try {
+                    $frequency = (string) $request->input('backup_frequency', 'manual');
+                    $settings = $backupService->saveSettings($frequency);
+                    $labels = [
+                        'manual' => 'Manual / nonaktif',
+                        'daily' => 'Setiap hari',
+                        'weekly' => 'Setiap minggu',
+                        'monthly' => 'Setiap bulan',
+                    ];
+                    $messages[] = 'Jadwal auto backup disimpan: ' . ($labels[$settings['frequency']] ?? $settings['frequency']) . '.';
+                } catch (\Throwable $e) {
+                    $errors[] = 'Gagal menyimpan jadwal auto backup: ' . $e->getMessage();
+                }
+            } elseif ($action === 'run_auto_backup') {
+                try {
+                    $result = $backupService->createBackup();
+                    $messages[] = (string) ($result['message'] ?? 'Auto backup berhasil dibuat.');
+                } catch (\Throwable $e) {
+                    $errors[] = 'Gagal membuat auto backup: ' . $e->getMessage();
+                }
             } else {
                 try {
-                    $dbName = (string) DB::selectOne('SELECT DATABASE() as db')->db;
-                    $sql = $this->dumpDatabase($pdo, $dbName);
+                    $dbName = $backupService->databaseName();
+                    $sql = $backupService->dumpDatabase($dbName);
                     $filename = 'backup_' . $dbName . '_' . date('Ymd_His') . '.sql';
                     return response($sql)
                         ->header('Content-Type', 'application/sql')
@@ -215,7 +194,11 @@ class SettingsController extends Controller
             }
         }
 
-        return view('modules.settings.backup', compact('messages', 'errors'));
+        $autoBackup = $backupService->loadSettings();
+        $autoBackup['next_run_text'] = $backupService->nextRunText($autoBackup);
+        $recentBackups = $backupService->recentBackups();
+
+        return view('modules.settings.backup', compact('messages', 'errors', 'autoBackup', 'recentBackups'));
     }
 
     public function reset(Request $request)

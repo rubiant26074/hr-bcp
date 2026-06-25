@@ -1,5 +1,6 @@
 <?php
 
+use App\Services\DatabaseBackupService;
 use App\Services\SecurityRosterService;
 use App\Models\Company;
 use Illuminate\Foundation\Inspiring;
@@ -10,6 +11,19 @@ use Illuminate\Support\Facades\Schema;
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
+
+Artisan::command('backup:auto', function () {
+    $service = new DatabaseBackupService(legacy_pdo());
+    $result = $service->runIfDue();
+
+    if (!empty($result['created'])) {
+        $this->info((string) ($result['message'] ?? 'Auto backup berhasil dibuat.'));
+    } else {
+        $this->line((string) ($result['message'] ?? 'Auto backup belum jatuh tempo.'));
+    }
+
+    return 0;
+})->purpose('Run scheduled database backup based on Backup Database setting');
 
 Artisan::command('security:generate-roster {--company_id=} {--month=} {--year=} {--anchor=2026-04-28} {--cycle=PPSSMMOO} {--force=0} {--reason=} {--instruction_ref=} {--actor_user_id=}', function () {
     if (!Schema::hasTable('security_shift_definitions') || !Schema::hasTable('security_rosters')) {
