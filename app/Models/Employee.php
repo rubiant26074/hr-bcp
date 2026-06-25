@@ -14,6 +14,8 @@ class Employee extends Model
     public const ACTIVE_STATUS_ACTIVE = 'Active';
     public const ACTIVE_STATUS_NON_ACTIVE = 'Non Active';
     public const ACTIVE_STATUS_PENDING_RESIGN = 'Dalam Proses Resign';
+    public const ACTIVE_STATUS_PENDING_PHK = 'Dalam Proses PHK';
+    public const ACTIVE_STATUS_PENDING_CONTRACT_END = 'Dalam Proses Habis Kontrak';
     public const ACTIVE_STATUS_RESIGN = 'Resign';
     public const ACTIVE_STATUS_PHK = 'PHK';
     public const ACTIVE_STATUS_HABIS_KONTRAK = 'Habis Kontrak';
@@ -70,8 +72,10 @@ class Employee extends Model
                 ->values()
                 ->all();
             if (!empty($items)) {
-                if (!in_array(self::ACTIVE_STATUS_PENDING_RESIGN, $items, true)) {
-                    $items[] = self::ACTIVE_STATUS_PENDING_RESIGN;
+                foreach ([self::ACTIVE_STATUS_PENDING_RESIGN, self::ACTIVE_STATUS_PENDING_PHK, self::ACTIVE_STATUS_PENDING_CONTRACT_END] as $status) {
+                    if (!in_array($status, $items, true)) {
+                        $items[] = $status;
+                    }
                 }
                 return $items;
             }
@@ -81,6 +85,8 @@ class Employee extends Model
             self::ACTIVE_STATUS_ACTIVE,
             self::ACTIVE_STATUS_NON_ACTIVE,
             self::ACTIVE_STATUS_PENDING_RESIGN,
+            self::ACTIVE_STATUS_PENDING_PHK,
+            self::ACTIVE_STATUS_PENDING_CONTRACT_END,
             self::ACTIVE_STATUS_MUTASI,
             self::ACTIVE_STATUS_RESIGN,
             self::ACTIVE_STATUS_PHK,
