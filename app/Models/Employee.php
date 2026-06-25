@@ -13,6 +13,7 @@ class Employee extends Model
 
     public const ACTIVE_STATUS_ACTIVE = 'Active';
     public const ACTIVE_STATUS_NON_ACTIVE = 'Non Active';
+    public const ACTIVE_STATUS_PENDING_RESIGN = 'Dalam Proses Resign';
     public const ACTIVE_STATUS_RESIGN = 'Resign';
     public const ACTIVE_STATUS_PHK = 'PHK';
     public const ACTIVE_STATUS_HABIS_KONTRAK = 'Habis Kontrak';
@@ -41,6 +42,7 @@ class Employee extends Model
         'position',
         'grade',
         'join_date',
+        'last_working_date',
         'contract_end',
         'photo_path',
         'ktp_path',
@@ -68,6 +70,9 @@ class Employee extends Model
                 ->values()
                 ->all();
             if (!empty($items)) {
+                if (!in_array(self::ACTIVE_STATUS_PENDING_RESIGN, $items, true)) {
+                    $items[] = self::ACTIVE_STATUS_PENDING_RESIGN;
+                }
                 return $items;
             }
         }
@@ -75,6 +80,7 @@ class Employee extends Model
         return [
             self::ACTIVE_STATUS_ACTIVE,
             self::ACTIVE_STATUS_NON_ACTIVE,
+            self::ACTIVE_STATUS_PENDING_RESIGN,
             self::ACTIVE_STATUS_MUTASI,
             self::ACTIVE_STATUS_RESIGN,
             self::ACTIVE_STATUS_PHK,

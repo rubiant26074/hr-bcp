@@ -114,7 +114,7 @@
           <label class="form-label">Status Aktif</label>
           @php $activeVal = old('active_status', $edit->active_status ?? 'Active'); @endphp
           <select class="form-select" name="active_status" id="active_status">
-            @foreach (($activeStatusOptions ?? ['Active','Non Active','Mutasi','Resign','PHK','Habis Kontrak']) as $s)
+            @foreach (($activeStatusOptions ?? ['Active','Non Active','Dalam Proses Resign','Mutasi','Resign','PHK','Habis Kontrak']) as $s)
               <option value="{{ $s }}" {{ $activeVal === $s ? 'selected' : '' }}>{{ $s }}</option>
             @endforeach
           </select>
@@ -251,6 +251,11 @@
             <div class="col-6">
               <label class="form-label">Tanggal Join</label>
               <input type="date" class="form-control" name="join_date" value="{{ $edit->join_date ?? '' }}">
+            </div>
+            <div class="col-6">
+              <label class="form-label">Last Working Date</label>
+              <input type="date" class="form-control" name="last_working_date" value="{{ old('last_working_date', $edit->last_working_date ?? '') }}">
+              <div class="form-text">Isi untuk status Dalam Proses Resign supaya payroll terakhir tetap dihitung proporsional.</div>
             </div>
             <div class="col-6">
               <label class="form-label">Habis Kontrak</label>

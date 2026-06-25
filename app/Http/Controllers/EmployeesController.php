@@ -361,6 +361,7 @@ class EmployeesController extends Controller
                     'grade' => ['nullable','string','max:120'],
                     'new_grade' => ['nullable','string','max:120'],
                     'join_date' => ['nullable','date'],
+                    'last_working_date' => ['nullable','date'],
                     'contract_end' => ['nullable','date'],
                     'placement_company_id' => ['nullable', 'integer', 'exists:companies,id'],
                 ]);
@@ -671,6 +672,9 @@ class EmployeesController extends Controller
                 'npwp_path' => $docPaths['npwp_path'],
                 'skck_path' => $docPaths['skck_path'],
             ];
+            if (Schema::hasColumn('employees', 'last_working_date')) {
+                $data['last_working_date'] = $validated['last_working_date'] ?? null;
+            }
 
             if (!empty($request->input('id'))) {
                 $existing->fill($data);

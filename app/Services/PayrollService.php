@@ -478,20 +478,36 @@ class PayrollService
         return $dates;
     }
 
-    private static function effectiveScheduledWorkDatesForEmployee(array $scheduledDates, ?string $joinDate): array
+    private static function effectiveScheduledWorkDatesForEmployee(array $scheduledDates, ?string $joinDate, ?string $lastWorkingDate = null): array
     {
+        $startKey = null;
         $join = trim((string) $joinDate);
-        if ($join === '') {
-            return $scheduledDates;
+        if ($join !== '') {
+            $joinTs = strtotime($join);
+            if ($joinTs !== false) {
+                $startKey = date('Y-m-d', $joinTs);
+            }
         }
 
-        $joinTs = strtotime($join);
-        if ($joinTs === false) {
-            return $scheduledDates;
+        $endKey = null;
+        $lastWorking = trim((string) $lastWorkingDate);
+        if ($lastWorking !== '') {
+            $lastWorkingTs = strtotime($lastWorking);
+            if ($lastWorkingTs !== false) {
+                $endKey = date('Y-m-d', $lastWorkingTs);
+            }
         }
 
-        $joinKey = date('Y-m-d', $joinTs);
-        return array_values(array_filter($scheduledDates, static fn ($date) => (string) $date >= $joinKey));
+        return array_values(array_filter($scheduledDates, static function ($date) use ($startKey, $endKey) {
+            $date = (string) $date;
+            if ($startKey !== null && $date < $startKey) {
+                return false;
+            }
+            if ($endKey !== null && $date > $endKey) {
+                return false;
+            }
+            return true;
+        }));
     }
 
     private static function absenceDivisor(int $fullWorkdays, int $employeeWorkdays): float
@@ -746,8 +762,19 @@ class PayrollService
                 ? max(0.0, (float) ($setting->manual_present_days ?? 0))
                 : 0.0;
 
-            $employeeScheduledDates = self::effectiveScheduledWorkDatesForEmployee($scheduledDates, (string) ($e->join_date ?? ''));
+            $employeeScheduledDates = self::effectiveScheduledWorkDatesForEmployee(
+                $scheduledDates,
+                (string) ($e->join_date ?? ''),
+                (string) ($e->last_working_date ?? '')
+            );
             $employeeWorkdays = count($employeeScheduledDates);
+            if ($workdays > 0 && $employeeWorkdays <= 0) {
+                DB::table('payroll')
+                    ->where('period_id', $periodId)
+                    ->where('employee_id', $employeeId)
+                    ->delete();
+                continue;
+            }
 
             $absDays = 0;
             if ($employeeWorkdays > 0) {
@@ -1179,7 +1206,6 @@ class PayrollService
             ->join('employees as e', 'e.id', '=', 'p.employee_id')
             ->where('p.period_id', $periodId)
             ->where('p.company_id', $companyId);
-        self::applyExcludeInactiveEmployeeStatuses($query, 'e.active_status');
 
         return $query
             ->orderBy('e.name')
@@ -1196,7 +1222,6 @@ class PayrollService
             ->leftJoin('companies as c', 'c.id', '=', 'e.company_id')
             ->where('p.period_id', $periodId)
             ->where('p.employee_id', $employeeId);
-        self::applyExcludeInactiveEmployeeStatuses($query, 'e.active_status');
 
         return $query
             ->select('p.*', 'e.name', 'e.nik', 'e.position', 'e.grade', 'e.employment_status', 'c.company_name', 'c.logo_path', 'e.company_id')
@@ -1213,7 +1238,6 @@ class PayrollService
             ->where('p.period_id', $periodId)
             ->where('p.employee_id', $employeeId)
             ->where('p.company_id', $companyId);
-        self::applyExcludeInactiveEmployeeStatuses($query, 'e.active_status');
 
         return $query
             ->select('p.*', 'e.name', 'e.nik', 'e.position', 'e.grade', 'e.employment_status', 'c.company_name', 'c.logo_path', 'e.company_id')
@@ -1257,7 +1281,11 @@ class PayrollService
             : 0.0;
         $scheduledDates = self::scheduledWorkDates($companyId, $startDate, $endDate, $company);
         $fullWorkdays = count($scheduledDates);
-        $employeeScheduledDates = self::effectiveScheduledWorkDatesForEmployee($scheduledDates, (string) ($employee->join_date ?? ''));
+        $employeeScheduledDates = self::effectiveScheduledWorkDatesForEmployee(
+            $scheduledDates,
+            (string) ($employee->join_date ?? ''),
+            (string) ($employee->last_working_date ?? '')
+        );
         $workdays = count($employeeScheduledDates);
 
         $presentDatesQuery = DB::table('attendance_daily as d')
