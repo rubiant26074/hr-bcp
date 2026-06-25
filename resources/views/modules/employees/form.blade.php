@@ -737,8 +737,17 @@
       var lastComma = cleaned.lastIndexOf(',');
       var lastDot = cleaned.lastIndexOf('.');
       var decimalSep = null;
-      if (lastComma >= 0 || lastDot >= 0) {
+      if (lastComma >= 0 && lastDot >= 0) {
         decimalSep = lastComma > lastDot ? ',' : '.';
+      } else if (lastComma >= 0) {
+        decimalSep = ',';
+      } else if (lastDot >= 0) {
+        var dotParts = cleaned.split('.');
+        var tail = dotParts[dotParts.length - 1] || '';
+        var groupedThousands = dotParts.length > 1 && tail.length === 3 && dotParts.slice(1).every(function (part) {
+          return part.length === 3;
+        });
+        decimalSep = groupedThousands ? null : '.';
       }
 
       if (decimalSep) {
@@ -857,7 +866,7 @@
         bpjsAllowance.classList.add('bg-light');
       }
 
-      if (statusVal.indexOf('HARIAN') !== -1) {
+      if (statusVal.indexOf('HARIAN') !== -1 || statusVal.indexOf('PERCOBAAN') !== -1) {
         bpjsHealth.value = formatIdNumber(0);
         jht.value = formatIdNumber(0);
         jp.value = formatIdNumber(0);

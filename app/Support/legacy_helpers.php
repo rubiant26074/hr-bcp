@@ -25,6 +25,49 @@ if (!function_exists('format_currency_id')) {
     }
 }
 
+if (!function_exists('parse_currency_id')) {
+    function parse_currency_id($value): float
+    {
+        if (is_int($value) || is_float($value)) {
+            return is_finite((float) $value) ? (float) $value : 0.0;
+        }
+
+        $cleaned = preg_replace('/[^0-9,\.\-]/', '', trim((string) $value));
+        if ($cleaned === '' || $cleaned === null) {
+            return 0.0;
+        }
+
+        $lastComma = strrpos($cleaned, ',');
+        $lastDot = strrpos($cleaned, '.');
+        $decimalSep = null;
+        if ($lastComma !== false && $lastDot !== false) {
+            $decimalSep = $lastComma > $lastDot ? ',' : '.';
+        } elseif ($lastComma !== false) {
+            $decimalSep = ',';
+        } elseif ($lastDot !== false) {
+            $parts = explode('.', $cleaned);
+            $tail = end($parts);
+            $hasGroupedThousands = count($parts) > 1
+                && strlen((string) $tail) === 3
+                && count(array_filter(array_slice($parts, 1), static fn ($part) => strlen((string) $part) !== 3)) === 0;
+            $decimalSep = $hasGroupedThousands ? null : '.';
+        }
+
+        if ($decimalSep !== null) {
+            $sepIndex = strrpos($cleaned, $decimalSep);
+            $intPart = substr($cleaned, 0, $sepIndex);
+            $decPart = substr($cleaned, $sepIndex + 1);
+            $intPart = str_replace([',', '.'], '', $intPart);
+            $decPart = str_replace([',', '.'], '', $decPart);
+            $cleaned = $intPart . ($decPart !== '' ? ('.' . $decPart) : '');
+        } else {
+            $cleaned = str_replace([',', '.'], '', $cleaned);
+        }
+
+        return is_numeric($cleaned) ? (float) $cleaned : 0.0;
+    }
+}
+
 if (!function_exists('asset_url')) {
     function asset_url(string $path): string
     {

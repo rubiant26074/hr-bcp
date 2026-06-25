@@ -207,6 +207,11 @@ class PayrollService
         return in_array($employmentStatus, ['FREELANCE', 'FRELANCE'], true);
     }
 
+    private static function isProbationStatus(string $employmentStatus): bool
+    {
+        return str_contains($employmentStatus, 'PERCOBAAN');
+    }
+
     private static function isOfficeSupportHarianException(?string $position): bool
     {
         $p = strtoupper(trim((string) $position));
@@ -819,6 +824,7 @@ class PayrollService
             $isKomisaris = $employmentStatus === 'KOMISARIS';
             $isAllIn = self::isAllInStatus($employmentStatus);
             $isFreelance = self::isFreelanceStatus($employmentStatus);
+            $isProbation = self::isProbationStatus($employmentStatus);
             $isOfficeSupportException = $isHarian && self::isOfficeSupportHarianException((string) ($e->position ?? ''));
 
             $overtimeMode = 'auto';
@@ -910,7 +916,7 @@ class PayrollService
             $bpjsHealth = round($calculatedBasicSalary * $bpjsHealthPct / 100, 2);
             $jht = round($calculatedBasicSalary * $jhtPct / 100, 2);
             $jp = round($calculatedBasicSalary * $jpPct / 100, 2);
-            if ($employmentStatus === 'HARIAN' || $isFreelance) {
+            if ($employmentStatus === 'HARIAN' || $isFreelance || $isProbation) {
                 $bpjsHealth = 0.0;
                 $jht = 0.0;
                 $jp = 0.0;
@@ -1007,8 +1013,118 @@ class PayrollService
         }
     }
 
+    public static function syncLoanDeductionFromSetting(int $periodId, int $employeeId, ?int $companyId = null): void
+    {
+        if ($periodId <= 0 || $employeeId <= 0) {
+            return;
+        }
+
+        $period = DB::table('payroll_period')->where('id', $periodId)->first();
+        if (!$period) {
+            return;
+        }
+
+        $status = strtolower(trim((string) ($period->status ?? '')));
+        if (in_array($status, ['close', 'closed', 'final', 'finalized'], true)) {
+            return;
+        }
+
+        $loan = (float) (DB::table('payroll_setting')
+            ->where('employee_id', $employeeId)
+            ->value('b1_loan') ?? 0);
+        if ($loan <= 0) {
+            return;
+        }
+
+        $query = DB::table('payroll')
+            ->where('period_id', $periodId)
+            ->where('employee_id', $employeeId);
+        if ($companyId !== null && $companyId > 0) {
+            $query->where('company_id', $companyId);
+        }
+
+        $row = $query->first();
+        if (!$row) {
+            return;
+        }
+
+        $currentLoan = (float) ($row->b1_loan ?? 0);
+        if (abs($currentLoan - $loan) < 0.01) {
+            return;
+        }
+
+        $totalIncome = (float) ($row->total_penerimaan ?? 0);
+        $totalDeduction = max(0.0, (float) ($row->total_potongan ?? 0) - $currentLoan + $loan);
+        $netSalary = $totalIncome - $totalDeduction;
+        $roundedNet = ceil($netSalary / 1000) * 1000;
+
+        DB::table('payroll')
+            ->where('id', (int) $row->id)
+            ->update([
+                'b1_loan' => $loan,
+                'total_potongan' => $totalDeduction,
+                'gaji_bersih' => $netSalary,
+                'pembulatan' => $roundedNet,
+            ]);
+    }
+
+    public static function syncLoanDeductionsFromSettings(int $periodId, int $companyId): void
+    {
+        if ($periodId <= 0 || $companyId <= 0) {
+            return;
+        }
+
+        $period = DB::table('payroll_period')->where('id', $periodId)->first();
+        if (!$period) {
+            return;
+        }
+
+        $status = strtolower(trim((string) ($period->status ?? '')));
+        if (in_array($status, ['close', 'closed', 'final', 'finalized'], true)) {
+            return;
+        }
+
+        $rows = DB::table('payroll as p')
+            ->join('payroll_setting as ps', 'ps.employee_id', '=', 'p.employee_id')
+            ->where('p.period_id', $periodId)
+            ->where('p.company_id', $companyId)
+            ->whereRaw('COALESCE(ps.b1_loan, 0) > 0')
+            ->select(
+                'p.id',
+                'p.b1_loan as current_loan',
+                'p.total_penerimaan',
+                'p.total_potongan',
+                'ps.b1_loan as setting_loan'
+            )
+            ->get();
+
+        foreach ($rows as $row) {
+            $loan = (float) ($row->setting_loan ?? 0);
+            $currentLoan = (float) ($row->current_loan ?? 0);
+            if ($loan <= 0 || abs($currentLoan - $loan) < 0.01) {
+                continue;
+            }
+
+            $totalIncome = (float) ($row->total_penerimaan ?? 0);
+            $totalDeduction = max(0.0, (float) ($row->total_potongan ?? 0) - $currentLoan + $loan);
+            $netSalary = $totalIncome - $totalDeduction;
+            $roundedNet = ceil($netSalary / 1000) * 1000;
+
+            DB::table('payroll')
+                ->where('id', (int) $row->id)
+                ->update([
+                    'b1_loan' => $loan,
+                    'total_potongan' => $totalDeduction,
+                    'gaji_bersih' => $netSalary,
+                    'pembulatan' => $roundedNet,
+                ]);
+        }
+    }
+
     public static function itemsByPeriodCompany(int $periodId, int $companyId)
     {
+        self::syncLoanDeductionsFromSettings($periodId, $companyId);
+
         $query = DB::table('payroll as p')
             ->join('employees as e', 'e.id', '=', 'p.employee_id')
             ->where('p.period_id', $periodId)
@@ -1023,6 +1139,8 @@ class PayrollService
 
     public static function itemByEmployee(int $periodId, int $employeeId)
     {
+        self::syncLoanDeductionFromSetting($periodId, $employeeId);
+
         $query = DB::table('payroll as p')
             ->join('employees as e', 'e.id', '=', 'p.employee_id')
             ->leftJoin('companies as c', 'c.id', '=', 'e.company_id')
@@ -1037,6 +1155,8 @@ class PayrollService
 
     public static function itemByEmployeeCompany(int $periodId, int $employeeId, int $companyId)
     {
+        self::syncLoanDeductionFromSetting($periodId, $employeeId, $companyId);
+
         $query = DB::table('payroll as p')
             ->join('employees as e', 'e.id', '=', 'p.employee_id')
             ->leftJoin('companies as c', 'c.id', '=', 'e.company_id')

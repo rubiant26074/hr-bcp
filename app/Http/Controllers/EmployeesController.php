@@ -750,18 +750,20 @@ class EmployeesController extends Controller
             $bpjsHealthPct = (float) ($companyForPayroll->bpjs_health_pct ?? 1);
             $jhtPct = (float) ($companyForPayroll->bpjs_jht_pct ?? 2);
             $jpPct = (float) ($companyForPayroll->bpjs_jp_pct ?? 1);
-            $basicSalary = (float) $request->input('basic_salary', 0);
-            $bpjsHealth = $employmentStatusForBpjs === 'HARIAN'
+            $basicSalary = parse_currency_id($request->input('basic_salary', 0));
+            $skipBpjsDeduction = $employmentStatusForBpjs === 'HARIAN'
+                || str_contains($employmentStatusForBpjs, 'PERCOBAAN');
+            $bpjsHealth = $skipBpjsDeduction
                 ? 0
                 : round($basicSalary * $bpjsHealthPct / 100, 2);
-            $jht = $employmentStatusForBpjs === 'HARIAN'
+            $jht = $skipBpjsDeduction
                 ? 0
                 : round($basicSalary * $jhtPct / 100, 2);
-            $jp = $employmentStatusForBpjs === 'HARIAN'
+            $jp = $skipBpjsDeduction
                 ? 0
                 : round($basicSalary * $jpPct / 100, 2);
             $allowTaxAndBpjsAllowance = in_array($employmentStatusForBpjs, ['TETAP ALL-IN', 'KONTRAK ALL-IN', 'KOMISARIS'], true);
-            $taxAllowanceAuto = $allowTaxAndBpjsAllowance ? (float) $request->input('b7_pph21', 0) : 0.0;
+            $taxAllowanceAuto = $allowTaxAndBpjsAllowance ? parse_currency_id($request->input('b7_pph21', 0)) : 0.0;
             $bpjsAllowanceAuto = $allowTaxAndBpjsAllowance ? (float) ($bpjsHealth + $jht + $jp) : 0.0;
 
             $payrollData = [

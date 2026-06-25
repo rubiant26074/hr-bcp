@@ -120,32 +120,37 @@ class PayrollSettingService
         return self::$hasManualPresentDaysColumn;
     }
 
+    private static function amount(array $data, string $key): float
+    {
+        return parse_currency_id($data[$key] ?? 0);
+    }
+
     private static function buildPayload(array $data): array
     {
         $payload = [
-            'basic_salary' => (float) $data['basic_salary'],
-            'a2_overtime' => (float) $data['a2_overtime'],
-            'a2_overtime_flat' => (float) $data['a2_overtime_flat'],
-            'a3_meal' => (float) $data['a3_meal'],
-            'a4_transport' => (float) $data['a4_transport'],
-            'a5_performance' => (float) $data['a5_performance'],
-            'a6_position' => (float) $data['a6_position'],
-            'a7_family' => (float) $data['a7_family'],
-            'a8_communication' => (float) $data['a8_communication'],
-            'a9_other' => (float) $data['a9_other'],
-            'a10_thr' => (float) $data['a10_thr'],
-            'a11_bonus' => (float) $data['a11_bonus'],
-            'a12_rapel_gaji' => (float) ($data['a12_rapel_gaji'] ?? 0),
-            'a12_tax_allowance' => (float) $data['a12_tax_allowance'],
-            'a13_bpjs_allowance' => (float) $data['a13_bpjs_allowance'],
-            'b1_loan' => (float) $data['b1_loan'],
-            'b2_absence' => (float) $data['b2_absence'],
-            'b3_subsidy' => (float) $data['b3_subsidy'],
-            'b4_bpjs_health' => (float) $data['b4_bpjs_health'],
-            'b5_jht' => (float) $data['b5_jht'],
-            'b6_jp' => (float) $data['b6_jp'],
-            'b7_pph21' => (float) $data['b7_pph21'],
-            'b8_other' => (float) $data['b8_other'],
+            'basic_salary' => self::amount($data, 'basic_salary'),
+            'a2_overtime' => self::amount($data, 'a2_overtime'),
+            'a2_overtime_flat' => self::amount($data, 'a2_overtime_flat'),
+            'a3_meal' => self::amount($data, 'a3_meal'),
+            'a4_transport' => self::amount($data, 'a4_transport'),
+            'a5_performance' => self::amount($data, 'a5_performance'),
+            'a6_position' => self::amount($data, 'a6_position'),
+            'a7_family' => self::amount($data, 'a7_family'),
+            'a8_communication' => self::amount($data, 'a8_communication'),
+            'a9_other' => self::amount($data, 'a9_other'),
+            'a10_thr' => self::amount($data, 'a10_thr'),
+            'a11_bonus' => self::amount($data, 'a11_bonus'),
+            'a12_rapel_gaji' => self::amount($data, 'a12_rapel_gaji'),
+            'a12_tax_allowance' => self::amount($data, 'a12_tax_allowance'),
+            'a13_bpjs_allowance' => self::amount($data, 'a13_bpjs_allowance'),
+            'b1_loan' => self::amount($data, 'b1_loan'),
+            'b2_absence' => self::amount($data, 'b2_absence'),
+            'b3_subsidy' => self::amount($data, 'b3_subsidy'),
+            'b4_bpjs_health' => self::amount($data, 'b4_bpjs_health'),
+            'b5_jht' => self::amount($data, 'b5_jht'),
+            'b6_jp' => self::amount($data, 'b6_jp'),
+            'b7_pph21' => self::amount($data, 'b7_pph21'),
+            'b8_other' => self::amount($data, 'b8_other'),
         ];
 
         if (self::hasOvertimeModeColumn()) {
