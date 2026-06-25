@@ -199,7 +199,7 @@ class PayrollService
 
     private static function isAllInStatus(string $employmentStatus): bool
     {
-        return in_array($employmentStatus, ['TETAP ALL-IN', 'KONTRAK ALL-IN'], true);
+        return str_contains($employmentStatus, 'ALL-IN');
     }
 
     private static function isFreelanceStatus(string $employmentStatus): bool
@@ -922,15 +922,9 @@ class PayrollService
                 $jp = 0.0;
             }
 
-            $taxDeduction = $isFreelance ? 0.0 : (float)($setting->b7_pph21 ?? 0);
             $bpjsAllowance = (float)($setting->a13_bpjs_allowance ?? 0);
             $taxAllowance = (float)($setting->a12_tax_allowance ?? 0);
             $bpjsDeductionTotal = $bpjsHealth + $jht + $jp;
-            $isAllInOrKomisaris = in_array($employmentStatus, ['TETAP ALL-IN', 'KONTRAK ALL-IN', 'KOMISARIS'], true);
-            if ($isAllInOrKomisaris) {
-                $bpjsAllowance = $bpjsDeductionTotal;
-                $taxAllowance = $taxDeduction;
-            }
             if ($isFreelance) {
                 $bpjsAllowance = 0.0;
                 $taxAllowance = 0.0;
@@ -952,22 +946,49 @@ class PayrollService
                 'a13_bpjs_allowance' => $bpjsAllowance,
             ];
 
-            // Rumus potongan absen per hari:
-            // (Gaji Pokok + semua tunjangan) / 26
-            // "Semua tunjangan" mengikuti komponen tunjangan (bukan lembur/THR/bonus/rapel).
+            $taxDeduction = $isFreelance
+                ? 0.0
+                : Pph21Service::expectedDeductionForPayrollRun(
+                    $e,
+                    $period,
+                    (float) $calculatedBasicSalary,
+                    $allowances,
+                    (float) $jht,
+                    (float) $jp
+                );
+            $isAllInOrKomisaris = self::isAllInStatus($employmentStatus) || $isKomisaris;
+            if ($isAllInOrKomisaris) {
+                $bpjsAllowance = $bpjsDeductionTotal;
+                $allowances['a13_bpjs_allowance'] = $bpjsAllowance;
+                for ($i = 0; $i < 5; $i++) {
+                    $allowances['a12_tax_allowance'] = $taxDeduction;
+                    $nextTaxDeduction = Pph21Service::expectedDeductionForPayrollRun(
+                        $e,
+                        $period,
+                        (float) $calculatedBasicSalary,
+                        $allowances,
+                        (float) $jht,
+                        (float) $jp
+                    );
+                    if (abs($nextTaxDeduction - $taxDeduction) < 0.01) {
+                        break;
+                    }
+                    $taxDeduction = $nextTaxDeduction;
+                }
+                $taxAllowance = $taxDeduction;
+                $allowances['a12_tax_allowance'] = $taxAllowance;
+                $allowances['a13_bpjs_allowance'] = $bpjsAllowance;
+            }
+
+            // Rumus potongan absen per hari: (A1 + A5 + A6 + A7) / 26.
             $absenceDeduction = 0.0;
             if (!$isHarian && !$isKomisaris && !$isFreelance && $absDays > 0) {
-                $allowanceBaseForAbsence =
-                    (float) ($allowances['a3_meal'] ?? 0)
-                    + (float) ($allowances['a4_transport'] ?? 0)
+                $dailyAbsenceBase = (
+                    (float) $calculatedBasicSalary
                     + (float) ($allowances['a5_performance'] ?? 0)
                     + (float) ($allowances['a6_position'] ?? 0)
                     + (float) ($allowances['a7_family'] ?? 0)
-                    + (float) ($allowances['a8_communication'] ?? 0)
-                    + (float) ($allowances['a9_other'] ?? 0)
-                    + (float) ($allowances['a12_tax_allowance'] ?? 0)
-                    + (float) ($allowances['a13_bpjs_allowance'] ?? 0);
-                $dailyAbsenceBase = ((float) $calculatedBasicSalary + $allowanceBaseForAbsence) / 26;
+                ) / 26;
                 $absenceDeduction = round(max(0, $dailyAbsenceBase) * max(0, (float) $absDays), 2);
             }
 
@@ -1170,7 +1191,7 @@ class PayrollService
             ->first();
     }
 
-    public static function absencePreviewForEmployee(int $employeeId, float $basicSalary): array
+    public static function absencePreviewForEmployee(int $employeeId, float $basicSalary, array $allowances = []): array
     {
         $employee = DB::table('employees')->where('id', $employeeId)->first();
         if (!$employee) {
@@ -1251,7 +1272,11 @@ class PayrollService
         }
         $amount = 0.0;
         if ($workdays > 0 && $absenceDays > 0) {
-            $amount = round(($basicSalary / $workdays) * $absenceDays, 2);
+            $base = $basicSalary
+                + parse_currency_id($allowances['a5_performance'] ?? 0)
+                + parse_currency_id($allowances['a6_position'] ?? 0)
+                + parse_currency_id($allowances['a7_family'] ?? 0);
+            $amount = round((max(0.0, $base) / 26) * $absenceDays, 2);
         }
 
         $periodLabel = $range['label'];

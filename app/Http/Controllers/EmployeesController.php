@@ -320,7 +320,11 @@ class EmployeesController extends Controller
                 $grades = $this->listGlobalOrCompany(EmployeeGrade::query(), $companyId, 'id');
                 $departments = $this->listGlobalOrCompany(EmployeeDepartment::query(), $companyId, 'id');
                 $activeStatusOptions = Employee::activeStatusOptions();
-                $absencePreview = PayrollService::absencePreviewForEmployee((int) $edit->id, (float) ($payroll->basic_salary ?? 0));
+                $absencePreview = PayrollService::absencePreviewForEmployee((int) $edit->id, (float) ($payroll->basic_salary ?? 0), [
+                    'a5_performance' => (float) ($payroll->a5_performance ?? 0),
+                    'a6_position' => (float) ($payroll->a6_position ?? 0),
+                    'a7_family' => (float) ($payroll->a7_family ?? 0),
+                ]);
             }
         }
 
@@ -762,7 +766,7 @@ class EmployeesController extends Controller
             $jp = $skipBpjsDeduction
                 ? 0
                 : round($basicSalary * $jpPct / 100, 2);
-            $allowTaxAndBpjsAllowance = in_array($employmentStatusForBpjs, ['TETAP ALL-IN', 'KONTRAK ALL-IN', 'KOMISARIS'], true);
+            $allowTaxAndBpjsAllowance = str_contains($employmentStatusForBpjs, 'ALL-IN') || $employmentStatusForBpjs === 'KOMISARIS';
             $taxAllowanceAuto = $allowTaxAndBpjsAllowance ? parse_currency_id($request->input('b7_pph21', 0)) : 0.0;
             $bpjsAllowanceAuto = $allowTaxAndBpjsAllowance ? (float) ($bpjsHealth + $jht + $jp) : 0.0;
 
@@ -799,7 +803,11 @@ class EmployeesController extends Controller
                 'b7_pph21' => $request->input('b7_pph21', 0),
                 'b8_other' => $request->input('b8_other', 0),
             ];
-            $autoAbsence = PayrollService::absencePreviewForEmployee($employeeId, (float) $payrollData['basic_salary']);
+            $autoAbsence = PayrollService::absencePreviewForEmployee($employeeId, (float) $payrollData['basic_salary'], [
+                'a5_performance' => $payrollData['a5_performance'] ?? 0,
+                'a6_position' => $payrollData['a6_position'] ?? 0,
+                'a7_family' => $payrollData['a7_family'] ?? 0,
+            ]);
             $payrollData['b2_absence'] = $autoAbsence['amount'];
             PayrollSettingService::upsert($employeeId, $payrollData);
             }

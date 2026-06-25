@@ -151,7 +151,7 @@
           <label class="form-label">PTKP Status</label>
           @php $ptkpVal = old('ptkp_status', $edit->ptkp_status ?? 'TK/0'); @endphp
           <select class="form-select" name="ptkp_status" id="ptkp_status" required>
-            @foreach (['TK/0','TK/1','TK/2','TK/3','K/0','K/1','K/2','K/3'] as $s)
+            @foreach (['TK/0','TK/1','TK/2','TK/3','K/0','K/1','K/2','K/3','HB/0','HB/1','HB/2','HB/3'] as $s)
               <option value="{{ $s }}" {{ $ptkpVal === $s ? 'selected' : '' }}>{{ $s }}</option>
             @endforeach
           </select>
@@ -492,7 +492,7 @@
           <div class="col-6">
             <label class="form-label">Tunjangan BPJS</label>
             <input type="text" class="form-control js-currency bg-light" id="a13_bpjs_allowance" name="a13_bpjs_allowance" value="{{ format_currency_id(optional($payroll)->a13_bpjs_allowance ?? 0, 2, false) }}" readonly>
-            <div class="form-text">Aktif hanya untuk status TETAP ALL-IN dan KOMISARIS.</div>
+            <div class="form-text">Aktif untuk status ALL-IN dan KOMISARIS.</div>
           </div>
 
           <div class="col-6">
@@ -502,7 +502,7 @@
           <div class="col-6">
             <label class="form-label">Potongan Absensi</label>
             <input type="text" class="form-control js-currency" name="b2_absence" value="{{ format_currency_id($absencePreview['amount'] ?? (optional($payroll)->b2_absence ?? 0), 2, false) }}" readonly>
-            <div class="form-text">Otomatis dari tidak hadir: {{ $absencePreview['absence_days'] ?? 0 }} hari (periode {{ $absencePreview['period_label'] ?? '-' }}). Cuti/Sakit dengan surat dokter tidak dipotong.</div>
+            <div class="form-text">Otomatis dari tidak hadir: {{ $absencePreview['absence_days'] ?? 0 }} hari x ((A1 + A5 + A6 + A7) / 26). Cuti/Sakit dengan surat dokter tidak dipotong.</div>
           </div>
           <div class="col-6">
             <label class="form-label">Subsidi 5%</label>
@@ -712,7 +712,11 @@
       'K/0': 'B',
       'K/1': 'C',
       'K/2': 'C',
-      'K/3': 'C'
+      'K/3': 'C',
+      'HB/0': 'A',
+      'HB/1': 'A',
+      'HB/2': 'B',
+      'HB/3': 'B'
     };
 
     function getRate(category, bruto) {
@@ -856,7 +860,7 @@
     function calcAll() {
       syncOvertimeModeUi();
       var statusVal = (empStatus && empStatus.value) ? empStatus.value.toUpperCase().trim() : '';
-      var allInOrKomisaris = statusVal === 'TETAP ALL-IN' || statusVal === 'KONTRAK ALL-IN' || statusVal === 'KOMISARIS';
+      var allInOrKomisaris = statusVal.indexOf('ALL-IN') !== -1 || statusVal === 'KOMISARIS';
       if (taxAllowance) {
         taxAllowance.readOnly = true;
         taxAllowance.classList.add('bg-light');
