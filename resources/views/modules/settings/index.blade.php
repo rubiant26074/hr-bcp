@@ -24,6 +24,15 @@
   <div class="col-md-6">
     <div class="card shadow-sm">
       <div class="card-body">
+        <h6 class="mb-2">Update Database</h6>
+        <div class="small text-muted mb-2">Jalankan migration dari browser untuk hosting tanpa terminal.</div>
+        <a class="btn btn-outline-primary btn-sm" href="{{ route('settings.migrate') }}">Buka</a>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card shadow-sm">
+      <div class="card-body">
         <h6 class="mb-2">Kontrol Hak Akses (RBAC)</h6>
         <div class="small text-muted mb-2">Kelola hak akses per role.</div>
         <a class="btn btn-outline-primary btn-sm" href="{{ route('rbac.index') }}">Buka</a>

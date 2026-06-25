@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Services\DatabaseBackupService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 
 class SettingsController extends Controller
 {
@@ -28,6 +30,39 @@ class SettingsController extends Controller
         }
 
         return view('modules.settings.theme', compact('messages', 'theme'));
+    }
+
+    public function migrate(Request $request)
+    {
+        $user = current_user();
+        $role = (string) ($user['role'] ?? '');
+        if ($role !== 'Super Admin' && !current_user_has_global_scope($user)) {
+            abort(403, 'Access denied.');
+        }
+
+        $messages = [];
+        $errors = [];
+        $output = '';
+
+        if ($request->isMethod('post')) {
+            $confirm = trim((string) $request->input('confirm_text', ''));
+            if (strtoupper($confirm) !== 'MIGRATE') {
+                $errors[] = 'Ketik MIGRATE untuk menjalankan update database.';
+            }
+
+            if (!$errors) {
+                try {
+                    Artisan::call('migrate', ['--force' => true]);
+                    $output = Artisan::output();
+                    $messages[] = 'Update database berhasil dijalankan.';
+                } catch (\Throwable $e) {
+                    $errors[] = 'Gagal menjalankan update database: ' . $e->getMessage();
+                    $output = Artisan::output();
+                }
+            }
+        }
+
+        return view('modules.settings.migrate', compact('messages', 'errors', 'output'));
     }
 
     private function splitSqlStatements(string $sql): array

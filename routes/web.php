@@ -193,6 +193,7 @@ Route::middleware(['legacy.auth'])->group(function () {
     Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index');
     Route::match(['get','post'], '/settings/theme', [SettingsController::class, 'theme'])->name('settings.theme');
     Route::match(['get','post'], '/settings/backup', [SettingsController::class, 'backup'])->name('settings.backup');
+    Route::match(['get','post'], '/settings/migrate', [SettingsController::class, 'migrate'])->name('settings.migrate');
     Route::match(['get','post'], '/settings/approval', [ApprovalSettingsController::class, 'index'])->name('settings.approval');
     Route::match(['get','post'], '/settings/roles', [RoleManagementController::class, 'index'])->name('settings.roles');
     Route::match(['get','post'], '/settings/reset', [SettingsController::class, 'reset'])->name('settings.reset');
