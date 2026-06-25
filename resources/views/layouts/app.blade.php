@@ -208,6 +208,9 @@
       @if (($user['role'] ?? '') === 'Super Admin' && $can('modules/settings/backup.php'))
       <a class="nav-link {{ request()->is('settings/backup') ? 'active' : '' }}" href="{{ url('/settings/backup') }}"><span class="nav-icon c4" aria-hidden="true"></span>Backup Database</a>
       @endif
+      @if (($user['role'] ?? '') === 'Super Admin')
+      <a class="nav-link {{ request()->is('settings/migrate') ? 'active' : '' }}" href="{{ url('/settings/migrate') }}"><span class="nav-icon c6" aria-hidden="true"></span>Update Database</a>
+      @endif
       @if (($user['role'] ?? '') === 'Super Admin' && $can('modules/settings/attendance_location.php'))
       <a class="nav-link {{ request()->is('settings/attendance-location') ? 'active' : '' }}" href="{{ url('/settings/attendance-location') }}"><span class="nav-icon c5" aria-hidden="true"></span>Setting Lokasi Absen</a>
       @endif
